@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-""" Usage: python rip.py [-d] <source_file> [output_path]
+""" Usage: python rip.py [-|-s] <source_file> [output_path]
   where -d means dry-run (i.e. show what it would have done)
+        -s means small (60% of the size and slightly lower quality)
 """
 
 #edit the following if you wish to change them
@@ -16,12 +17,21 @@ handbrakelog = 'handbrake.log'
 Handbrake_options = ['--optimize']  # web optimize (directory at start of file)
 
 # table of DVD sizes mapping to the appropriate preset
-presets = {
+Presets_HQ = {
     480: 'HQ 480p30 Surround',
     576: 'HQ 576p25 Surround',
     720: 'HQ 720p30 Surround',
     1080: 'HQ 1080p30 Surround',
 }
+
+Presets_LQ = {
+    480: 'Fast 480p30',
+    576: 'Fast 576p25',
+    720: 'Fast 720p30',
+    1080: 'Fast 1080p30',
+}
+
+Presets = None  # set to Presets_HQ below unless -s option is supplied
 
 import sys
 import os
@@ -58,12 +68,15 @@ def capture_shell(*args):
     process_info.stderr = [to_utf8(line) for line in process_info.stderr.strip(b'\n').split(b'\n')]
     return process_info
 
-def scan(source):
+def scan(source, dry_run=False):
     """ Find numbered titles in input source and return a dict of titles with fields 1, 2, 3, ...
         with each field's value a duration object with fields 'seconds' and 'text' (for human-readable time).
         If there is a line "DVD Title: <name>" in the source scan, include it as a field 'dvdtitle' in the dict.
     """
-    lines = capture_shell(handbrake, '-t0', '-i', source).stderr
+    args = [handbrake, '-t0', '-i', source]
+    if dry_run:
+        print(f"Scanning {source} using: {' '.join(args)}")
+    lines = capture_shell(*args).stderr
     titles = {}
     for line in lines:
         istitle = re.search(r"\+ title ([0-9]+):", line)
@@ -89,7 +102,7 @@ def rip(source, dest, minimum_seconds=0, dry_run=False):
         but only if they are longer than seconds duration
         If dry_run is True, don't actually do the rip; just show what it would do
     """
-    titles = scan(source)
+    titles = scan(source, dry_run=dry_run)
     if not titles:
         printlog(f"ERROR: No titles found in {source} -- skipping")
         return
@@ -105,7 +118,7 @@ def rip(source, dest, minimum_seconds=0, dry_run=False):
     for title in included:
         outfile = dest + f"-{title.seconds//60:03}m-{title.title:02}.m4v"
         printlog(f"Ripping title {title.title:02} ({title.text}) as '{outfile}'")
-        args = [handbrake, f"-t{title.title}", '-Z', presets[title.size], *Handbrake_options, '-i', source, '-o', outfile]
+        args = [handbrake, f"-t{title.title}", '-Z', Presets[title.size], *Handbrake_options, '-i', source, '-o', outfile]
         args.append(f"2>>{handbrakelog}")
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S ')
         with open(handbrakelog, 'a') as hlog:
@@ -133,9 +146,13 @@ def glob_rip(source, minimum_seconds=0, dry_run=False, output_path=None):
 
 if __name__ == "__main__":
     dry_run = False
+    Presets = Presets_HQ
     if '-d' in sys.argv:
         sys.argv.remove('-d')
         dry_run = True
+    if '-s' in sys.argv:
+        sys.argv.remove('-s')
+        presets = Presets_LQ
 
     source = sys.argv[1]
     if len(sys.argv) > 2:
