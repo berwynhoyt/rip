@@ -10,11 +10,14 @@ handbrake = "HandBrakeCLI"
 minimum_seconds = 60*1
 
 # Logfiles will go in the Output_path
-logfile = 'rip.log'
-handbrakelog = 'handbrake.log'
+Logfile = 'rip.log'
+Handbrakelog = 'handbrake.log'
 
 # The following are added after the appropriate preset (i.e. 'HQ 480p30 Surround' -- see table below)
-Handbrake_options = ['--optimize']  # web optimize (directory at start of file)
+Handbrake_options = [
+    '--optimize',   # web optimize (directory at start of file)
+    '--all-subtitles', '--subtitle-forced',
+]
 
 # table of DVD sizes mapping to the appropriate preset
 Presets_HQ = {
@@ -45,7 +48,7 @@ Output_path = ''
 
 def log(string):
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S ')
-    with open(logfile, 'a') as log:
+    with open(Logfile, 'a') as log:
         print(timestamp+string, file=log)
 def printlog(string, printer=sys.stdout):
     print(string, file=printer)
@@ -59,15 +62,6 @@ def to_utf8(input):
         log(f"WARNING: Could not decode as utf-8: {input}")
     return output
 
-def capture_shell(*args):
-    """ Run subprocess specified by command line args
-        Return process_info object with output in .stdout .stderr
-    """
-    process_info = subprocess.run(args, capture_output=True)
-    process_info.stdout = [to_utf8(line) for line in process_info.stdout.strip(b'\n').split(b'\n')]
-    process_info.stderr = [to_utf8(line) for line in process_info.stderr.strip(b'\n').split(b'\n')]
-    return process_info
-
 def scan(source, dry_run=False):
     """ Find numbered titles in input source and return a dict of titles with fields 1, 2, 3, ...
         with each field's value a duration object with fields 'seconds' and 'text' (for human-readable time).
@@ -76,7 +70,8 @@ def scan(source, dry_run=False):
     args = [handbrake, '-t0', '-i', source]
     if dry_run:
         print(f"Scanning {source} using: {' '.join(args)}")
-    lines = capture_shell(*args).stderr
+    process_info = subprocess.run(args, capture_output=True, encoding='utf-8', errors='namereplace')
+    lines = process_info.stderr.strip().split('\n')
     titles = {}
     for line in lines:
         istitle = re.search(r"\+ title ([0-9]+):", line)
@@ -97,11 +92,27 @@ def scan(source, dry_run=False):
             titles['dvdtitle'] = isdvdtitle[1]
     return titles
 
+def filter_shell(*args):
+    with open(Handbrakelog, 'ab') as hlog:
+        with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=hlog) as p:
+            data = b''
+            while p.poll() is None:
+                c = p.stdout.read(1)
+                data += c
+                if c in b'\r\n':
+                    if data.startswith(b'libdvd'):
+                        hlog.write(data)
+                    else:
+                        sys.stdout.buffer.write(data)
+                        sys.stdout.buffer.flush()
+                    data = b''
+
 def rip(source, dest, minimum_seconds=0, dry_run=False):
     """ Find titles in input source and rip them to "<dest>-<title>.m4v"
         but only if they are longer than seconds duration
         If dry_run is True, don't actually do the rip; just show what it would do
     """
+    print("Scanning for titles")
     titles = scan(source, dry_run=dry_run)
     if not titles:
         printlog(f"ERROR: No titles found in {source} -- skipping")
@@ -109,33 +120,37 @@ def rip(source, dest, minimum_seconds=0, dry_run=False):
 
     included = []
     for title in titles.values():
+        if not hasattr(title, 'seconds'): continue
         include = title.seconds >= minimum_seconds
-        print(f"Title {title} ({title.text})" + ("" if include else f" -- skipped because < {minimum_seconds}s"))
+        print(f"Title {title.title} ({title.text})" + ("" if include else f" -- skipped because < {minimum_seconds}s"))
         if include: included.append(title)
 
-    included.sort(key=lambda title: title.seconds)
-    print("\nSmallest titles first:")
+    included.sort(key=lambda title: title.seconds, reverse=True)
+    print("\nLargest titles first:")
     for title in included:
         outfile = dest + f"-{title.seconds//60:03}m-{title.title:02}.m4v"
         printlog(f"Ripping title {title.title:02} ({title.text}) as '{outfile}'")
         args = [handbrake, f"-t{title.title}", '-Z', Presets[title.size], *Handbrake_options, '-i', source, '-o', outfile]
-        args.append(f"2>>{handbrakelog}")
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S ')
-        with open(handbrakelog, 'a') as hlog:
+        with open(Handbrakelog, 'a') as hlog:
             print('\n' + timestamp + ' '.join(args), file=hlog)
         if dry_run:
             print('  ' + ' '.join(args))
         else:
-            process_info = subprocess.run(args, shell=True)
+            process_info = filter_shell(*args)
 
 def glob_rip(source, minimum_seconds=0, dry_run=False, output_path=None):
     """ Expand wildcards in source and rip() all matching files
         If dry_run is True, don't actually do the rip; just show what it would do
     """
-    for filename in glob.glob(source):
-        basename, ext = os.path.splitext(filename)
+    sources = glob.glob(source)
+    if not sources:
+        print("No files found")
+        return
+    for filename in sources:
+        basename, ext = os.path.splitext(os.path.split(filename)[1])
         directory = basename
-        if output_path and filename[0] not in r"\/":
+        if output_path:
             directory = os.path.join(output_path, directory)
         os.makedirs(directory, exist_ok=True)
         dest = os.path.join(directory, basename)
@@ -154,11 +169,16 @@ if __name__ == "__main__":
         sys.argv.remove('-s')
         presets = Presets_LQ
 
+    if len(sys.argv) <= 1:
+        print(__doc__)
+        sys.exit(1)
+
     source = sys.argv[1]
     if len(sys.argv) > 2:
         Output_path = sys.argv[2]
-        logfile = os.path.join(Output_path, logfile)
-        handbrakelog = os.path.join(Output_path, handbrakelog)
+        os.makedirs(Output_path, exist_ok=True)
+        Logfile = os.path.join(Output_path, Logfile)
+        Handbrakelog = os.path.join(Output_path, Handbrakelog)
 
     try:
         glob_rip(source, minimum_seconds, output_path=Output_path, dry_run=dry_run)
