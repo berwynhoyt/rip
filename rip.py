@@ -125,7 +125,7 @@ def rip(source, dest, minimum_seconds=0, dry_run=False):
         print(f"Title {title.title} ({title.text})" + ("" if include else f" -- skipped because < {minimum_seconds}s"))
         if include: included.append(title)
 
-    included.sort(key=lambda title: title.seconds, reverse=False)
+    included.sort(key=lambda title: title.seconds, reverse=True)
     print("\nLargest titles first:")
     for title in included:
         outfile = dest + f"-{title.seconds//60:03}m-{title.title:02}.m4v"
