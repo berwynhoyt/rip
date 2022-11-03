@@ -70,7 +70,7 @@ def scan(source, dry_run=False):
     args = [handbrake, '-t0', '-i', source]
     if dry_run:
         print(f"Scanning {source} using: {' '.join(args)}")
-    process_info = subprocess.run(args, capture_output=True, encoding='utf-8', errors='namereplace')
+    process_info = subprocess.run(args, capture_output=True, encoding='utf-8', errors='backslashreplace')
     lines = process_info.stderr.strip().split('\n')
     titles = {}
     for line in lines:
