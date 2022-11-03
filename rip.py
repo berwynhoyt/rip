@@ -16,7 +16,7 @@ Handbrakelog = 'handbrake.log'
 # The following are added after the appropriate preset (i.e. 'HQ 480p30 Surround' -- see table below)
 Handbrake_options = [
     '--optimize',   # web optimize (directory at start of file)
-    '--all-subtitles', '--subtitle-forced',
+    '--all-subtitles', '--subtitle', 'scan', '--subtitle-burned=none',
 ]
 
 # table of DVD sizes mapping to the appropriate preset
@@ -125,7 +125,7 @@ def rip(source, dest, minimum_seconds=0, dry_run=False):
         print(f"Title {title.title} ({title.text})" + ("" if include else f" -- skipped because < {minimum_seconds}s"))
         if include: included.append(title)
 
-    included.sort(key=lambda title: title.seconds, reverse=True)
+    included.sort(key=lambda title: title.seconds, reverse=False)
     print("\nLargest titles first:")
     for title in included:
         outfile = dest + f"-{title.seconds//60:03}m-{title.title:02}.m4v"
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         dry_run = True
     if '-s' in sys.argv:
         sys.argv.remove('-s')
-        presets = Presets_LQ
+        Presets = Presets_LQ
 
     if len(sys.argv) <= 1:
         print(__doc__)
