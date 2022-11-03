@@ -95,17 +95,29 @@ def scan(source, dry_run=False):
 def filter_shell(*args):
     with open(Handbrakelog, 'ab') as hlog:
         with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=hlog) as p:
+            prev = b''
+            prev_dest = None
             data = b''
             while p.poll() is None:
                 c = p.stdout.read(1)
                 data += c
                 if c in b'\r\n':
-                    if data.startswith(b'libdvd'):
-                        hlog.write(data)
+                    if prev in b'\r\n' and prev_dest:
+                        prev_dest.write(data)
+                        prev_dest.flush()
                     else:
-                        sys.stdout.buffer.write(data)
-                        sys.stdout.buffer.flush()
+                        if data.startswith(b'libdvd'):
+                            hlog.write(data)
+                            hlog.flush()
+                            prev_dest = hlog
+                        else:
+                            sys.stdout.buffer.write(data)
+                            sys.stdout.buffer.flush()
+                            prev_dest = sys.stdout.buffer
                     data = b''
+                else:
+                    prev_dest = None
+                prev = c
 
 def rip(source, dest, minimum_seconds=0, dry_run=False):
     """ Find titles in input source and rip them to "<dest>-<title>.m4v"
