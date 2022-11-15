@@ -180,6 +180,10 @@ if __name__ == "__main__":
     if '-s' in sys.argv:
         sys.argv.remove('-s')
         Presets = Presets_LQ
+    for option in sys.argv:
+        if option.startswith('-'):
+            sys.argv.remove(option)
+            Handbrake_options.append(option)
 
     if len(sys.argv) <= 1:
         print(__doc__)
